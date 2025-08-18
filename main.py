@@ -5,21 +5,27 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from dotenv import load_dotenv
+load_dotenv()
 
 # Add backend directory to sys.path to allow imports from root
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from helpers.order_models import OrderRequest, OrderItem, Customer, Totals
-from order_processing import (
+from helpers.order_models import OrderRequest
+from controllers.order_processing import (
     get_next_order_id,
     build_order_docx_path,
     format_order_docx,
     print_file,
 )
+# or from enums import ResponseMessages / because init.py is present
 from enums.order_messages import ResponseMessages
 
-# Project root (directory that contains index.html, css/, js/, images/, orders/)
-ROOT = Path(__file__).resolve().parent.parent
+# Project root
+ROOT = Path(__file__).resolve().parent
+
+# ORDERS_PATH = Path(os.getenv("ORDERS_PATH", str(ROOT / "orders")))
+ORDERS_PATH = ROOT / "orders"
 
 app = FastAPI(title=ResponseMessages.RESTAURANT_TITLE.value)
 app.add_middleware(
@@ -41,6 +47,7 @@ if (ROOT / "images").exists():
 # --- HTML pages ---
 @app.get("/")
 def serve_index():
+
     index = ROOT / "index.html"
     if not index.exists():
         return {"message": ResponseMessages.HTML_SERVER_SUCCESS.value}
@@ -57,12 +64,13 @@ def serve_cart():
 # --- API Endpoints ---
 @app.post("/submit_order")
 def submit_order(order: OrderRequest):
-    try:
-        order_id = get_next_order_id()
-        docx_path = build_order_docx_path(order_id)
 
-        format_order_docx(order, order_id, docx_path)
-        print_file(docx_path)
+    try:
+        order_id = get_next_order_id(ORDERS_PATH)
+        docx_path = build_order_docx_path(order_id, ORDERS_PATH)
+
+        format_order_docx(order, order_id, docx_path, ORDERS_PATH)
+        print_file(docx_path, ORDERS_PATH)
 
         return {"success": True, "order_id": order_id, "file_path": str(docx_path)}
     except Exception as e:
@@ -71,11 +79,12 @@ def submit_order(order: OrderRequest):
 
 @app.get("/print_order/{order_id}")
 def reprint_order(order_id: int):
-    docx_path = build_order_docx_path(order_id)
+
+    docx_path = build_order_docx_path(order_id, ORDERS_PATH)
     if not docx_path.exists():
         raise HTTPException(status_code=404, detail=f"Order {order_id} not found.")
     try:
-        print_file(docx_path)
+        print_file(docx_path, ORDERS_PATH)
         return {"success": True, "message": f"Order {order_id} sent to printer."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not print order {order_id}: {e}")

@@ -19,12 +19,6 @@ except ImportError:
     win32api = None  # type: ignore
     win32print = None  # type: ignore
 
-# Project root is the parent of this "app/" directory
-ROOT_DIR = Path(__file__).resolve().parent.parent
-ORDERS_DIR = ROOT_DIR / "orders"
-ORDER_ID_FILE = ORDERS_DIR / "last_id.txt"
-ORDERS_DIR.mkdir(exist_ok=True)
-
 def set_cell_text(cell, text, bold=False, align=None):
     """Helper to set text with optional bold and alignment in a python-docx cell."""
     if not getattr(cell, "paragraphs", None):
@@ -46,7 +40,7 @@ def set_cell_text(cell, text, bold=False, align=None):
         elif align == 'right':
             p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-def format_order_docx(order, order_id: int, filepath: Path) -> None:
+def format_order_docx(order, order_id: int, filepath: Path, root_path: Path) -> None:
     if Document is None:
         raise ImportError("python-docx is not installed")
 
@@ -126,7 +120,11 @@ def format_order_docx(order, order_id: int, filepath: Path) -> None:
     filepath.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(filepath))
 
-def get_next_order_id() -> int:
+def get_next_order_id(root_path: Path) -> int:
+    ORDERS_DIR = root_path
+    ORDER_ID_FILE = ORDERS_DIR / "last_id.txt"
+    ORDERS_DIR.mkdir(exist_ok=True)
+
     last_id = 0
     if ORDER_ID_FILE.exists():
         content = ORDER_ID_FILE.read_text(encoding="utf-8").strip()
@@ -136,10 +134,11 @@ def get_next_order_id() -> int:
     ORDER_ID_FILE.write_text(str(new_id), encoding="utf-8")
     return new_id
 
-def build_order_docx_path(order_id: int) -> Path:
+def build_order_docx_path(order_id: int, root_path: Path) -> Path:
+    ORDERS_DIR = root_path
     return ORDERS_DIR / f"wempy_order_{order_id}.docx"
 
-def print_file(filepath: Path) -> None:
+def print_file(filepath: Path, root_path: Path) -> None:
     if platform.system() != "Windows":
         print(ResponseMessages.PRINTER_SUPPORTED_WINDOWS.value)
         return
@@ -156,4 +155,3 @@ def print_file(filepath: Path) -> None:
                 win32api.ShellExecute(0, "print", str(filepath), f'/d:"{win32print.GetDefaultPrinter()}"', ".", 0)
             except Exception as e2:
                 print(f"win32api printing failed: {e2}")
-                
