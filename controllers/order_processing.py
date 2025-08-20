@@ -138,6 +138,22 @@ def build_order_docx_path(order_id: int, root_path: Path) -> Path:
     ORDERS_DIR = root_path
     return ORDERS_DIR / f"wempy_order_{order_id}.docx"
 
+def get_xprinter():
+    """البحث عن أول طابعة XPrinter متاحة"""
+    if not win32print:
+        return None
+    
+    try:
+        printers = win32print.EnumPrinters(2)
+        for printer in printers:
+            printer_name = printer[2]
+            printer_name_lower = printer_name.lower()
+            if 'xprinter' in printer_name_lower or 'xp-' in printer_name_lower or 'XP-' in printer_name:
+                return printer[2]
+    except Exception as e:
+        print(f"Error finding XPrinter: {e}")
+    return None
+
 def print_file(filepath: Path, root_path: Path) -> None:
     if platform.system() != "Windows":
         print(ResponseMessages.PRINTER_SUPPORTED_WINDOWS.value)
@@ -146,12 +162,29 @@ def print_file(filepath: Path, root_path: Path) -> None:
     if not filepath.exists():
         raise FileNotFoundError(f"{ResponseMessages.PRINTER_FILE_NOT_FOUND.value} : {filepath}")
 
+    # البحث عن طابعة XPrinter أولاً
+    xprinter = get_xprinter()
+    
+    if xprinter and win32api:
+        try:
+            print(f"Printing to XPrinter: {xprinter}")
+            win32api.ShellExecute(0, "print", str(filepath), f'/d:"{xprinter}"', ".", 0)
+            print(f"✅ تم إرسال الطلب للطباعة على {xprinter}")
+            return
+        except Exception as e:
+            print(f"XPrinter printing failed: {e}. Trying default method.")
+    
+    # إذا لم تنجح طباعة XPrinter، استخدم الطريقة الافتراضية
     try:
         os.startfile(str(filepath), "print")  # type: ignore[attr-defined]
+        print("✅ تم إرسال الطلب للطباعة على الطابعة الافتراضية")
     except Exception as e:
-        print(f"os.startfile failed: {e}. Trying win32api.")
+        print(f"os.startfile failed: {e}. Trying win32api with default printer.")
         if win32api and win32print:
             try:
-                win32api.ShellExecute(0, "print", str(filepath), f'/d:"{win32print.GetDefaultPrinter()}"', ".", 0)
+                default_printer = win32print.GetDefaultPrinter()
+                win32api.ShellExecute(0, "print", str(filepath), f'/d:"{default_printer}"', ".", 0)
+                print(f"✅ تم إرسال الطلب للطباعة على {default_printer}")
             except Exception as e2:
                 print(f"win32api printing failed: {e2}")
+                raise Exception(f"فشل في الطباعة: {e2}")
