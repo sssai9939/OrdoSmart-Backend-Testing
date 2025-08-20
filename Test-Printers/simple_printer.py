@@ -45,5 +45,5 @@ if __name__ == "__main__":
     #file_path = Path(__file__).parent / "orders" / "wempy_order_7.docx"
     #printer.print_file(str(file_path))
 
-    file_path = Path(__file__).parent.parent / "orders" / "wempy_order_7.docx" # .. تعني الصعود مجلد واحد للأعلى
+    file_path = Path(__file__).parent.parent / "orders" / "wempy_order_7.docx" # file_path = "../orders/wempy_order_7.docx"
     printer.print_file(str(file_path))

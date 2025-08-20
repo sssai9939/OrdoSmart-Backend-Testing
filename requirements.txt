@@ -3,8 +3,5 @@ uvicorn[standard]
 python-docx
 multipart
 python-dotenv
-google-api-python-client
-sqlalchemy
-psycopg2-binary
 pydantic-settings
 pywin32
