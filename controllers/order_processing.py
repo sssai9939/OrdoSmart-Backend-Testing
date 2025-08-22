@@ -154,7 +154,8 @@ def get_xprinter():
         print(f"Error finding XPrinter: {e}")
     return None
 
-def print_file(filepath: Path, root_path: Path) -> None:
+def print_file_dual(filepath: Path, root_path: Path) -> None:
+    """Print file to both XPrinter devices using DualPrinter"""
     if platform.system() != "Windows":
         print(ResponseMessages.PRINTER_SUPPORTED_WINDOWS.value)
         return
@@ -162,6 +163,23 @@ def print_file(filepath: Path, root_path: Path) -> None:
     if not filepath.exists():
         raise FileNotFoundError(f"{ResponseMessages.PRINTER_FILE_NOT_FOUND.value} : {filepath}")
 
+    try:
+        # استخدام DualPrinter للطباعة على الطابعتين
+        from .printer_controller import print_order
+        success = print_order(str(filepath))
+        
+        if success:
+            print("✅ تم إرسال الطلب للطباعة على الطابعتين")
+        else:
+            # إذا فشلت الطباعة المزدوجة، استخدم الطريقة القديمة
+            print("⚠️ فشل في الطباعة المزدوجة، جاري المحاولة بالطريقة الافتراضية...")
+            print_file_single(filepath, root_path)
+    except Exception as e:
+        print(f"DualPrinter failed: {e}. Using fallback method.")
+        print_file_single(filepath, root_path)
+
+def print_file_single(filepath: Path, root_path: Path) -> None:
+    """Original single printer method as fallback"""
     # البحث عن طابعة XPrinter أولاً
     xprinter = get_xprinter()
     
@@ -188,3 +206,8 @@ def print_file(filepath: Path, root_path: Path) -> None:
             except Exception as e2:
                 print(f"win32api printing failed: {e2}")
                 raise Exception(f"فشل في الطباعة: {e2}")
+
+# Keep original function name for backward compatibility
+def print_file(filepath: Path, root_path: Path) -> None:
+    """Main print function - now uses dual printing by default"""
+    print_file_dual(filepath, root_path)

@@ -20,6 +20,7 @@ from controllers.order_processing import (
     format_order_docx,
     print_file,
 )
+from controllers.printer_controller import print_order
 from enums.order_messages import ResponseMessages
 
 # Project root (directory that contains main.py)
@@ -78,6 +79,7 @@ def submit_order(order: OrderRequest):
 
 @app.get("/print_order/{order_id}")
 def reprint_order(order_id: int):
+
     docx_path = build_order_docx_path(order_id, ORDERS_PATH)
     if not docx_path.exists():
         raise HTTPException(status_code=404, detail=f"Order {order_id} not found.")
@@ -87,4 +89,4 @@ def reprint_order(order_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not print order {order_id}: {e}")
 
-# uvicorn OrdoSmart-Wempy-Backend.main:app --reload
+# uvicorn Wempy-Backend.main:app --reload
