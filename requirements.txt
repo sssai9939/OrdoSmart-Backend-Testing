@@ -4,7 +4,6 @@ python-docx
 multipart
 python-dotenv
 pydantic-settings
-pywin32
 supabase
 gunicorn
 requests
