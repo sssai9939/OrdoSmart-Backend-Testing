@@ -4,7 +4,10 @@ import os
 from pathlib import Path
 
 class SimplePrinter:
-    """كلاس بسيط للطباعة باستخدام XPrinter"""
+    """
+    كلاس للطباعة باستخدام 
+    XPrinter on Windows using win32print and win32api libraries
+    """
     
     def __init__(self):
         self.printer_name = self.find_xprinter()

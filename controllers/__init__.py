@@ -1,6 +1,4 @@
-from .order_processing import (set_cell_text,
-                                format_order_docx,
-                                get_next_order_id,
-                                build_order_docx_path,
-                                print_file)
-from .printer_controller import print_order, DualPrinter
+from .order_processing import set_cell_text
+from .printer_controller import DualPrinter, print_file
+from .order_storage import get_next_order_id, build_order_docx_path
+from .supabase_storage import upload_order_to_supabase, download_order_from_supabase

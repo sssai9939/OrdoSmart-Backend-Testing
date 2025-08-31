@@ -1,8 +1,12 @@
-import os
-import platform
+"""Order processing helpers.
+
+This module generates DOCX receipts for orders and allocates sequential order IDs.
+It relies on `python-docx` for document creation.
+"""
+
 from datetime import datetime
 from pathlib import Path
-from enums.order_messages import ResponseMessages
+import io
 
 try:
     from docx import Document
@@ -12,12 +16,6 @@ except ImportError:
     Document = None
     WD_ALIGN_PARAGRAPH = None  # type: ignore
 
-try:
-    import win32api
-    import win32print
-except ImportError:
-    win32api = None  # type: ignore
-    win32print = None  # type: ignore
 
 def set_cell_text(cell, text, bold=False, align=None):
     """Helper to set text with optional bold and alignment in a python-docx cell."""
@@ -40,7 +38,7 @@ def set_cell_text(cell, text, bold=False, align=None):
         elif align == 'right':
             p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
-def format_order_docx(order, order_id: int, filepath: Path, root_path: Path) -> None:
+def create_order_docx_bytes(order, order_id: int) -> bytes:
     if Document is None:
         raise ImportError("python-docx is not installed")
 
@@ -117,97 +115,9 @@ def format_order_docx(order, order_id: int, filepath: Path, root_path: Path) -> 
         set_cell_text(notes_table.cell(0, 0), order.customer.notes, align='left')
         doc.add_paragraph()
 
-    filepath.parent.mkdir(parents=True, exist_ok=True)
-    doc.save(str(filepath))
-
-def get_next_order_id(root_path: Path) -> int:
-    ORDERS_DIR = root_path
-    ORDER_ID_FILE = ORDERS_DIR / "last_id.txt"
-    ORDERS_DIR.mkdir(exist_ok=True)
-
-    last_id = 0
-    if ORDER_ID_FILE.exists():
-        content = ORDER_ID_FILE.read_text(encoding="utf-8").strip()
-        if content.isdigit():
-            last_id = int(content)
-    new_id = last_id + 1
-    ORDER_ID_FILE.write_text(str(new_id), encoding="utf-8")
-    return new_id
-
-def build_order_docx_path(order_id: int, root_path: Path) -> Path:
-    ORDERS_DIR = root_path
-    return ORDERS_DIR / f"wempy_order_{order_id}.docx"
-
-def get_xprinter():
-    """البحث عن أول طابعة XPrinter متاحة"""
-    if not win32print:
-        return None
     
-    try:
-        printers = win32print.EnumPrinters(2)
-        for printer in printers:
-            printer_name = printer[2]
-            printer_name_lower = printer_name.lower()
-            if 'xprinter' in printer_name_lower or 'xp-' in printer_name_lower or 'XP-' in printer_name:
-                return printer[2]
-    except Exception as e:
-        print(f"Error finding XPrinter: {e}")
-    return None
-
-def print_file_dual(filepath: Path, root_path: Path) -> None:
-    """Print file to both XPrinter devices using DualPrinter"""
-    if platform.system() != "Windows":
-        print(ResponseMessages.PRINTER_SUPPORTED_WINDOWS.value)
-        return
-
-    if not filepath.exists():
-        raise FileNotFoundError(f"{ResponseMessages.PRINTER_FILE_NOT_FOUND.value} : {filepath}")
-
-    try:
-        # استخدام DualPrinter للطباعة على الطابعتين
-        from .printer_controller import print_order
-        success = print_order(str(filepath))
-        
-        if success:
-            print("✅ تم إرسال الطلب للطباعة على الطابعتين")
-        else:
-            # إذا فشلت الطباعة المزدوجة، استخدم الطريقة القديمة
-            print("⚠️ فشل في الطباعة المزدوجة، جاري المحاولة بالطريقة الافتراضية...")
-            print_file_single(filepath, root_path)
-    except Exception as e:
-        print(f"DualPrinter failed: {e}. Using fallback method.")
-        print_file_single(filepath, root_path)
-
-def print_file_single(filepath: Path, root_path: Path) -> None:
-    """Original single printer method as fallback"""
-    # البحث عن طابعة XPrinter أولاً
-    xprinter = get_xprinter()
-    
-    if xprinter and win32api:
-        try:
-            print(f"Printing to XPrinter: {xprinter}")
-            win32api.ShellExecute(0, "print", str(filepath), f'/d:"{xprinter}"', ".", 0)
-            print(f"✅ تم إرسال الطلب للطباعة على {xprinter}")
-            return
-        except Exception as e:
-            print(f"XPrinter printing failed: {e}. Trying default method.")
-    
-    # إذا لم تنجح طباعة XPrinter، استخدم الطريقة الافتراضية
-    try:
-        os.startfile(str(filepath), "print")  # type: ignore[attr-defined]
-        print("✅ تم إرسال الطلب للطباعة على الطابعة الافتراضية")
-    except Exception as e:
-        print(f"os.startfile failed: {e}. Trying win32api with default printer.")
-        if win32api and win32print:
-            try:
-                default_printer = win32print.GetDefaultPrinter()
-                win32api.ShellExecute(0, "print", str(filepath), f'/d:"{default_printer}"', ".", 0)
-                print(f"✅ تم إرسال الطلب للطباعة على {default_printer}")
-            except Exception as e2:
-                print(f"win32api printing failed: {e2}")
-                raise Exception(f"فشل في الطباعة: {e2}")
-
-# Keep original function name for backward compatibility
-def print_file(filepath: Path, root_path: Path) -> None:
-    """Main print function - now uses dual printing by default"""
-    print_file_dual(filepath, root_path)
+    # Save document to an in-memory stream
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer.getvalue()

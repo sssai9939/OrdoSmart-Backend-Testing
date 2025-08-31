@@ -42,7 +42,7 @@ class DualPrinter:
         print(f"Printing to both printers: {os.path.basename(file_path)}")
         
         result1 = self.print_to_printer1(file_path)
-        time.sleep(0.5)  # توقف قصير بين الطباعتين
+        time.sleep(0.5) 
         result2 = self.print_to_printer2(file_path)
         
         return result1 and result2
@@ -94,7 +94,6 @@ if __name__ == "__main__":
     file2 = base_path / "wempy_order_11.docx"
     shared_file = base_path / "wempy_order_12.docx"
     
-    # اختبار مبسط - ملف واحد على الطابعتين
     test_file = base_path / "wempy_order_12.docx"
     
     print("🖨️ Simple Test: Print one file to both printers")

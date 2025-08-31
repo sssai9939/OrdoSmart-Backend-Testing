@@ -1,27 +1,21 @@
-import sys
 import os
+import sys
 from pathlib import Path
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
 # Add backend directory to sys.path to allow imports from root
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from helpers.order_models import OrderRequest
-from controllers.order_processing import (
-    get_next_order_id,
-    build_order_docx_path,
-    format_order_docx,
-    print_file,
-)
-from controllers.printer_controller import print_order
-from enums.order_messages import ResponseMessages
+from controllers.order_processing import create_order_docx_bytes
+from controllers.order_storage import get_next_order_id, build_order_docx_path
+from controllers.supabase_storage import upload_order_to_supabase, download_order_from_supabase
+from controllers.printer_controller import print_file
+from models.enums import ResponseMessages
 
 # Project root (directory that contains main.py)
 ROOT = Path(__file__).resolve().parent
@@ -38,44 +32,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Serve static directories ---
-if (ROOT / "css").exists():
-    app.mount("/css", StaticFiles(directory=str(ROOT / "css")), name="css")
-if (ROOT / "js").exists():
-    app.mount("/js", StaticFiles(directory=str(ROOT / "js")), name="js")
-if (ROOT / "images").exists():
-    app.mount("/images", StaticFiles(directory=str(ROOT / "images")), name="images")
-
-# --- HTML pages ---
-@app.get("/")
-def serve_index():
-    index = ROOT / "index.html"
-    if not index.exists():
-        return {"message": ResponseMessages.HTML_SERVER_SUCCESS.value}
-    return FileResponse(str(index))
-
-@app.get("/menu")
-def serve_menu():
-    return FileResponse(str(ROOT / "menu.html"))
-
-@app.get("/cart")
-def serve_cart():
-    return FileResponse(str(ROOT / "cart.html"))
-
 # --- API Endpoints ---
 @app.post("/submit_order")
 def submit_order(order: OrderRequest):
     try:
         order_id = get_next_order_id(ORDERS_PATH)
-        docx_path = build_order_docx_path(order_id, ORDERS_PATH)
+        file_name = f"wempy_order_{order_id}.docx"
 
-        format_order_docx(order, order_id, docx_path, ORDERS_PATH)
-        print_file(docx_path, ORDERS_PATH)
+        # 1. Create DOCX file in memory
+        docx_bytes = create_order_docx_bytes(order, order_id)
 
-        return {"success": True, "order_id": order_id, "file_path": str(docx_path)}
+        # 2. Upload to Supabase
+        public_url = upload_order_to_supabase(file_content=docx_bytes, file_name=file_name)
+
+        return {"success": True, "order_id": order_id, "file_name": file_name, "url": public_url}
     except Exception as e:
         print(f"{ResponseMessages.PROCESSING_ORDER_FAILED.value} : {e}")
         raise HTTPException(status_code=500, detail=f"{ResponseMessages.PROCESSING_ORDER_FAILED.value} : {e}")
+
+
+@app.post("/process_and_print_order/{order_id}")
+def process_and_print_order(order_id: int):
+    try:
+        file_name = f"wempy_order_{order_id}.docx"
+        local_path = build_order_docx_path(order_id, ORDERS_PATH)
+
+        # 1. Download from Supabase
+        order_bytes = download_order_from_supabase(file_name)
+
+        # 2. Save locally
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(local_path, "wb") as f:
+            f.write(order_bytes)
+
+        # 3. Print the file
+        print_file(local_path, ORDERS_PATH)
+
+        return {"success": True, "message": f"Order {order_id} downloaded, saved, and sent to printer."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process and print order {order_id}: {e}")
 
 @app.get("/print_order/{order_id}")
 def reprint_order(order_id: int):
@@ -89,4 +84,6 @@ def reprint_order(order_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not print order {order_id}: {e}")
 
-# uvicorn Wempy-Backend.main:app --reload
+# uvicorn main:app --reload
+# باختصار، الأولى تجلب الطلب من السحابة وتطبعه (للمرة الأولى)
+# الثانية تعيد طباعة طلب موجود بالفعل على الجهاز
