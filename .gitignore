@@ -204,3 +204,4 @@ __marimo__/
 
 # Local printing client - not part of the server deployment
 printing_client/
+.note.text

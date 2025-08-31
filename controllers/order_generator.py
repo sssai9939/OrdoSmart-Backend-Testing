@@ -1,13 +1,11 @@
-"""Order processing helpers.
+"""
+receipt_generator:
 
-This module generates DOCX receipts for orders and allocates sequential order IDs.
+This module --> generates DOCX receipts for orders and allocates sequential order IDs.
 It relies on `python-docx` for document creation.
 """
-
 from datetime import datetime
-from pathlib import Path
 import io
-
 try:
     from docx import Document
     from docx.shared import Mm, Pt

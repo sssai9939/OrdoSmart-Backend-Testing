@@ -13,16 +13,16 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     stream=sys.stdout,
 )
-
 load_dotenv()
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from helpers.order_models import OrderRequest
-from controllers.order_processing import create_order_docx_bytes
-from controllers.order_storage import get_next_order_id, build_order_docx_path
+from controllers.order_generator import create_order_docx_bytes
+from controllers.order_manager import get_next_order_id, build_order_docx_path
 from controllers.supabase_storage import upload_order_to_supabase, download_order_from_supabase
 from controllers.printer_controller import print_file
+
 from models.enums import ResponseMessages
 from supabase import create_client, Client
 
@@ -81,7 +81,6 @@ def submit_order(order: OrderRequest, request: Request):
             status_code=500,
             content={"success": False, "message": error_message}
         )
-
 
 @app.post("/process_and_print_order/{order_id}")
 def process_and_print_order(order_id: int):

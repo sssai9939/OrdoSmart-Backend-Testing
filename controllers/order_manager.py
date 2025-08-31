@@ -1,5 +1,9 @@
 from pathlib import Path
+"""
+يُنشئ رقم طلب جديد (get_next_order_id).
+يحدد مسار الملف (build_order_docx_path).
 
+"""
 def get_next_order_id(root_path: Path) -> int:
     ORDERS_DIR = root_path
     ORDER_ID_FILE = ORDERS_DIR / "last_id.txt"
