@@ -4,10 +4,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-
 load_dotenv()
 
-# Add backend directory to sys.path to allow imports from root
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from helpers.order_models import OrderRequest
@@ -16,12 +14,20 @@ from controllers.order_storage import get_next_order_id, build_order_docx_path
 from controllers.supabase_storage import upload_order_to_supabase, download_order_from_supabase
 from controllers.printer_controller import print_file
 from models.enums import ResponseMessages
+from supabase import create_client, Client
 
 # Project root (directory that contains main.py)
 ROOT = Path(__file__).resolve().parent
 
 # Get custom orders path from environment variable, default to ROOT / "orders"
 ORDERS_PATH = Path(os.getenv("ORDERS_PATH", str(ROOT / "orders")))
+
+# --- Supabase Client Initialization ---
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise ValueError("Supabase URL and Key must be set in environment variables.")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI(title=ResponseMessages.RESTAURANT_TITLE.value)
 app.add_middleware(
@@ -42,8 +48,15 @@ def submit_order(order: OrderRequest):
         # 1. Create DOCX file in memory
         docx_bytes = create_order_docx_bytes(order, order_id)
 
-        # 2. Upload to Supabase
+        # 2. Upload to Supabase Storage
         public_url = upload_order_to_supabase(file_content=docx_bytes, file_name=file_name)
+
+        # 3. Insert into 'orders' table to trigger realtime
+        try:
+            supabase.table("orders").insert({"id": order_id, "status": "new"}).execute()
+        except Exception as db_error:
+            # Log the DB error but don't fail the whole request, as the order is already in storage
+            print(f"⚠️ Warning: Failed to insert order {order_id} into DB for realtime update: {db_error}")
 
         return {"success": True, "order_id": order_id, "file_name": file_name, "url": public_url}
     except Exception as e:
