@@ -201,3 +201,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local printing client - not part of the server deployment
+printing_client/
+.note.text
