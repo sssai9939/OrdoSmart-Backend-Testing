@@ -1,10 +1,19 @@
 import os
 import sys
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+
+# --- Logging Configuration ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
+)
+
 load_dotenv()
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -42,7 +51,8 @@ app.add_middleware(
 # --- API Endpoints ---
 
 @app.post("/submit_order")
-def submit_order(order: OrderRequest):
+def submit_order(order: OrderRequest, request: Request):
+    logging.info(f"Received new order submission from {request.client.host}")
     try:
         order_id = get_next_order_id(ORDERS_PATH)
         file_name = f"wempy_order_{order_id}.docx"
@@ -58,15 +68,15 @@ def submit_order(order: OrderRequest):
             supabase.table("orders").insert({"id": order_id, "status": "new"}).execute()
         except Exception as db_error:
             # Log the DB error but don't fail the whole request, as the order is already in storage
-            print(f"⚠️ Warning: Failed to insert order {order_id} into DB for realtime update: {db_error}")
+            logging.warning(f"Failed to insert order {order_id} into DB for realtime update: {db_error}")
 
         return JSONResponse(
             status_code=200,
             content={"success": True, "order_id": order_id, "file_name": file_name, "url": public_url}
         )
     except Exception as e:
-        error_message = f"{ResponseMessages.PROCESSING_ORDER_FAILED.value} : {e}"
-        print(error_message)
+        error_message = f"Error processing order: {e}"
+        logging.error(error_message, exc_info=True) # exc_info=True will log the full traceback
         return JSONResponse(
             status_code=500,
             content={"success": False, "message": error_message}
