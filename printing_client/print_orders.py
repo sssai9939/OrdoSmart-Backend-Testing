@@ -6,54 +6,54 @@ import win32print
 import win32api
 from supabase import create_client, Client
 
-# --- Load Environment Variables ---
-print("Loading environment variables...")
+# --- Load Environment Variables & Initialize Supabase ---
 load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 BUCKET_NAME = os.getenv("BUCKET_NAME")
 
-# --- Validate Environment Variables ---
 if not all([SUPABASE_URL, SUPABASE_KEY, BUCKET_NAME]):
     print("❌ Critical Error: SUPABASE_URL, SUPABASE_KEY, and BUCKET_NAME must be set in .env file.")
     exit()
 
-print("Initializing Supabase client...")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- Printer Class (Windows Only) ---
+# --- Configuration ---
+POLLING_INTERVAL_SECONDS = 10
+STATE_FILE = Path("./last_order.txt")
+
+# --- Printer Class (Same as before) ---
 class DualPrinter:
     def __init__(self):
         self.printers = self._find_xprinters()
         self.printer1 = self.printers[0] if len(self.printers) > 0 else None
         self.printer2 = self.printers[1] if len(self.printers) > 1 else None
-        print(f"Printer 1 (Kitchen): {self.printer1 or 'Not Found'}")
-        print(f"Printer 2 (Cashier): {self.printer2 or 'Not Found'}")
+        if self.printer1 and self.printer2:
+            print(f"✅ Printer 1 (Kitchen): {self.printer1}")
+            print(f"✅ Printer 2 (Cashier): {self.printer2}")
+        else:
+            print(f"❌ Error: Could not find both 'XP-80C' printers.")
 
     def _find_xprinters(self):
         printers = [p[2] for p in win32print.EnumPrinters(2)]
-        return sorted([p for p in printers if 'xprinter' in p.lower() or 'xp-' in p.lower()])
+        xprinters = [p for p in printers if 'XP-80C' in p]
+        return sorted(xprinters)
 
     def print_file(self, file_path):
         if not self.printer1 or not self.printer2:
-            print("❌ Both printers must be available to print.")
-            return False
-        if not os.path.exists(file_path):
-            print(f"❌ File not found: {file_path}")
+            print("❌ Error: One or both printers are not found. Cannot print.")
             return False
         
-        print(f"\n🖨️ Printing to both printers: {os.path.basename(file_path)}")
-        result1 = self._print_to_printer(file_path, self.printer1, "Printer 1")
-        time.sleep(0.5)
-        result2 = self._print_to_printer(file_path, self.printer2, "Printer 2")
-        return result1 and result2
+        print_success1 = self._print_to_printer(file_path, self.printer1, "Kitchen")
+        print_success2 = self._print_to_printer(file_path, self.printer2, "Cashier")
+        return print_success1 and print_success2
 
     def _print_to_printer(self, file_path, printer_name, printer_label):
         try:
             current_default = win32print.GetDefaultPrinter()
             win32print.SetDefaultPrinter(printer_name)
-            win32api.ShellExecute(0, "print", file_path, None, ".", 0)
-            time.sleep(1) # Wait for the print job to be sent
+            win32api.ShellExecute(0, "print", str(file_path), None, ".", 0)
+            time.sleep(2) # Increased wait time for stability
             win32print.SetDefaultPrinter(current_default)
             print(f"✅ Sent to {printer_label} ({printer_name})")
             return True
@@ -61,80 +61,88 @@ class DualPrinter:
             print(f"❌ Error printing to {printer_label}: {e}")
             return False
 
+# --- State Management ---
+def get_next_order_id() -> int:
+    if not STATE_FILE.exists():
+        # If you want to start from a specific order, change the '1' here.
+        print("State file not found. Starting from order ID 1.")
+        return 1
+    try:
+        last_id = int(STATE_FILE.read_text().strip())
+        return last_id + 1
+    except (ValueError, FileNotFoundError):
+        print("Error reading state file. Starting from order ID 1.")
+        return 1
+
+def save_last_order_id(order_id: int):
+    STATE_FILE.write_text(str(order_id))
+
 # --- Supabase Interaction ---
 def download_order(order_id: int, local_dir: Path) -> Path | None:
     file_name = f"wempy_order_{order_id}.docx"
     local_path = local_dir / file_name
     
-    print(f"Downloading {file_name} from Supabase...")
     try:
+        res = supabase.storage.from_(BUCKET_NAME).download(file_name)
         with open(local_path, "wb+") as f:
-            res = supabase.storage.from_(BUCKET_NAME).download(file_name)
             f.write(res)
-        print(f"✅ Downloaded successfully to {local_path}")
         return local_path
     except Exception as e:
-        print(f"❌ Failed to download order {order_id}. Error: {e}")
+        # This is expected when an order doesn't exist yet.
+        # We only log other unexpected errors.
+        if 'Not found' not in str(e):
+             print(f"\nAn unexpected error occurred while downloading order {order_id}: {e}")
         return None
 
-# --- Realtime Callback ---
-def handle_new_order(payload):
-    print(f"\n🔔 New Order Received! Payload: {payload}")
-    record = payload.get('new', {})
-    order_id = record.get('id')
-    
-    if not order_id:
-        print("⚠️ Received payload without a valid order ID.")
-        return
-
-    print(f"Processing Order ID: {order_id}")
-    # It's good practice to create a fresh printer and dir object inside the callback
-    # to ensure thread safety and fresh state, although not strictly necessary here.
-    local_orders_dir = Path("./temp_orders")
-    printer = DualPrinter()
-
-    downloaded_path = download_order(order_id, local_orders_dir)
-    if downloaded_path:
-        printer.print_file(str(downloaded_path))
-        # Optional: Clean up the downloaded file after printing
-        # os.remove(downloaded_path)
-
-# --- Main Application ---
+# --- Main Application Loop ---
 def main():
-    print("--- Wempy Realtime Printing Client ---")
+    print("--- Wempy Order Polling Client ---")
     local_orders_dir = Path("./temp_orders")
     local_orders_dir.mkdir(exist_ok=True)
 
     try:
-        printer_check = DualPrinter()
-        if not printer_check.printer1 or not printer_check.printer2:
-             print("\n--- WAITING FOR PRINTERS ---")
-             print("Please ensure both XPrinter devices are connected and recognized.")
-             return
+        printer = DualPrinter()
+        if not printer.printer1 or not printer.printer2:
+            print("\n--- WAITING FOR PRINTERS ---")
+            print("Please ensure both XPrinter devices are connected and recognized. Exiting.")
+            return
     except Exception as e:
         print(f"❌ Could not initialize printer object. Error: {e}")
-        print("Please ensure 'pywin32' is installed and printers are connected.")
         return
 
-    print("\n🚀 Connecting to Supabase Realtime...")
-    realtime_channel = supabase.realtime
-    channel = realtime_channel.channel('public:orders')
-    channel.on(
-        'postgres_changes',
-        filter={'event': 'INSERT', 'schema': 'public', 'table': 'orders'},
-        callback=handle_new_order
-    ).subscribe()
+    next_order_id = get_next_order_id()
+    print(f"\n🚀 Starting polling from Order ID: {next_order_id}")
 
-    print("✅ Connected! Listening for new orders...")
-    try:
-        # Keep the script running to listen for events
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\nShutting down listener...")
-        # It's good practice to unsubscribe, though not strictly required
-        # channel.unsubscribe() # This might need proper async handling
-        print("Goodbye!")
+    while True:
+        try:
+            print(f"\nChecking for Order ID: {next_order_id}...")
+            downloaded_path = download_order(next_order_id, local_orders_dir)
+
+            if downloaded_path:
+                print(f"✅ Found and downloaded {downloaded_path.name}")
+                print_success = printer.print_file(downloaded_path)
+                
+                if print_success:
+                    save_last_order_id(next_order_id)
+                    print(f"✅ Successfully processed Order ID: {next_order_id}")
+                    next_order_id += 1
+                    # Don't wait, immediately check for the next order
+                    continue 
+                else:
+                    print(f"⚠️ Failed to print Order ID: {next_order_id}. Will retry.")
+
+            else:
+                print(f"No new order found. Waiting for {POLLING_INTERVAL_SECONDS} seconds...")
+            
+            time.sleep(POLLING_INTERVAL_SECONDS)
+
+        except KeyboardInterrupt:
+            print("\nShutting down client...")
+            break
+        except Exception as e:
+            print(f"An unexpected error occurred in the main loop: {e}")
+            print("Restarting loop after a short delay...")
+            time.sleep(15)
 
 if __name__ == "__main__":
     main()

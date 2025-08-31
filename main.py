@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 
@@ -39,6 +40,7 @@ app.add_middleware(
 )
 
 # --- API Endpoints ---
+
 @app.post("/submit_order")
 def submit_order(order: OrderRequest):
     try:
@@ -58,10 +60,17 @@ def submit_order(order: OrderRequest):
             # Log the DB error but don't fail the whole request, as the order is already in storage
             print(f"⚠️ Warning: Failed to insert order {order_id} into DB for realtime update: {db_error}")
 
-        return {"success": True, "order_id": order_id, "file_name": file_name, "url": public_url}
+        return JSONResponse(
+            status_code=200,
+            content={"success": True, "order_id": order_id, "file_name": file_name, "url": public_url}
+        )
     except Exception as e:
-        print(f"{ResponseMessages.PROCESSING_ORDER_FAILED.value} : {e}")
-        raise HTTPException(status_code=500, detail=f"{ResponseMessages.PROCESSING_ORDER_FAILED.value} : {e}")
+        error_message = f"{ResponseMessages.PROCESSING_ORDER_FAILED.value} : {e}"
+        print(error_message)
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "message": error_message}
+        )
 
 
 @app.post("/process_and_print_order/{order_id}")
