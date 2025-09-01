@@ -10,10 +10,9 @@ load_dotenv()
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from helpers.order_models import OrderRequest
-from controllers.order_processing import create_order_docx_bytes
-from controllers.order_storage import get_next_order_id, build_order_docx_path
-from controllers.supabase_storage import upload_order_to_supabase, download_order_from_supabase
-from controllers.printer_controller import print_file
+from controllers.order_generator import create_order_docx_bytes
+from controllers.order_manager import get_next_order_id, build_order_docx_path
+from controllers.supabase_uploader import upload_order_to_supabase, download_order_from_supabase
 from models.enums import ResponseMessages
 from supabase import create_client, Client
 
@@ -71,41 +70,3 @@ def submit_order(order: OrderRequest):
             status_code=500,
             content={"success": False, "message": error_message}
         )
-
-
-@app.post("/process_and_print_order/{order_id}")
-def process_and_print_order(order_id: int):
-    try:
-        file_name = f"wempy_order_{order_id}.docx"
-        local_path = build_order_docx_path(order_id, ORDERS_PATH)
-
-        # 1. Download from Supabase
-        order_bytes = download_order_from_supabase(file_name)
-
-        # 2. Save locally
-        local_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(local_path, "wb") as f:
-            f.write(order_bytes)
-
-        # 3. Print the file
-        print_file(local_path, ORDERS_PATH)
-
-        return {"success": True, "message": f"Order {order_id} downloaded, saved, and sent to printer."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process and print order {order_id}: {e}")
-
-@app.get("/print_order/{order_id}")
-def reprint_order(order_id: int):
-
-    docx_path = build_order_docx_path(order_id, ORDERS_PATH)
-    if not docx_path.exists():
-        raise HTTPException(status_code=404, detail=f"Order {order_id} not found.")
-    try:
-        print_file(docx_path, ORDERS_PATH)
-        return {"success": True, "message": f"Order {order_id} sent to printer."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not print order {order_id}: {e}")
-
-# uvicorn main:app --reload
-# باختصار، الأولى تجلب الطلب من السحابة وتطبعه (للمرة الأولى)
-# الثانية تعيد طباعة طلب موجود بالفعل على الجهاز
